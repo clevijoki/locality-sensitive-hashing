@@ -1,0 +1,269 @@
+<!--
+
+Copyright 2022 Clint Levijoki
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-->
+<!DOCTYPE html>
+<html>
+	<head>
+		<title></title>
+	</head>
+	<body>
+		<h2>Locality Sensitive Hashing</h2>
+		<table id="src"></table>
+		<p id="tmp"></p>
+		<table id="tgt"></table>
+
+		<script type="text/javascript">
+
+			let colors = [];
+			let hashes = [];
+			let planes = [];
+			let normColors = [];
+
+			let HASH_SIZE = 16;
+			let HASH_COUNT = 500;
+			let MIN_MATCH_COUNT = HASH_COUNT/3;
+
+			// Standard Normal variate using Box-Muller transform.
+			function randn_bm() {
+			  let u = 0, v = 0;
+
+			  while(u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+			  while(v === 0) v = Math.random();
+			  let num = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+			  num = num / 10.0 + 0.5; // Translate to 0 -> 1
+			  if (num > 1 || num < 0) return randn_bm() // resample between 0 and 1
+			  return num
+			}
+
+			// build all the planes we will use to generate hashes
+			let encode_dim = encode_color([1,1,1]).length;
+			for (let n = 0; n < HASH_COUNT; ++n)
+			{
+				let bit_planes = [];
+				for (let m = 0; m < HASH_SIZE; ++m)
+				{
+					let plane = [];
+					while (plane.length < encode_dim)
+					{
+						plane.push(Math.random()*2-1);
+					}
+
+					bit_planes.push(plane);
+				}
+
+				planes.push(bit_planes);
+			}
+
+			function dot(a, b)
+			{
+				let result = 0.0;
+
+				for (let i = 0; i < a.length; ++i)
+				{
+					result += a[i]*b[i];
+				}
+
+				return result;
+			}
+
+			function make_hash(c, bp)
+			{
+				let result = 0;
+
+				let enc_color = encode_color(c);
+				console.assert(enc_color.length == bp[0].length);
+
+				for (let i = 0; i < bp.length; ++i)
+				{
+					if (dot(enc_color, bp[i]) > 0)
+					{
+						result += (1<<i);
+					}
+				}
+
+				return result;
+			}
+
+			function color_to_hex(color) {
+				let r = parseInt(color[0]*255);
+				let g = parseInt(color[1]*255);
+				let b = parseInt(color[2]*255);
+
+				return '#' + (r < 16 ? '0' : '') + r.toString(16) + (g < 16 ? '0' : '') + g.toString(16) + (b < 16 ? '0' : '') + b.toString(16);
+			}
+
+			var color_scale = Math.sqrt(3.0)+0.01;
+
+			function encode_color(color3) {
+
+				let r = color3[0];
+				let g = color3[1];
+				let b = color3[2];
+
+				/*
+			 	let M = Math.max(r,g,b);
+			 	let m = Math.min(r,g,b);
+
+			 	let h = 0;
+			 	let s = 0;
+			 	let v = 0;
+
+			 	let C = M-m;
+			 	if( C==0 )
+			 		h=0;
+			 	else if( M==r )
+			 		h=((g-b)/C)%6;
+			 	else if( M==g )
+			 		h=(b-r)/C+2;
+			 	else
+			 		h=(r-g)/C+4;
+
+			 	h*=60;
+
+			 	if( h<0 )
+			 		h+=360;
+
+			 	v = M;
+
+			 	if( v==0 )
+			 		s = 0;
+			 	else
+			 		s = C/v;
+
+			 	h = h/360;
+
+			 	return [h*2-1, s*2-1, v*2-1];
+			 	*/
+
+				return [r*2-1, g*2-1, b*2-1, (Math.sqrt(r*r+g*g+b*b)/color_scale)*2-1];
+			}
+
+			function find_match_count(a, b)
+			{
+				let result = 0;
+				for (let i = 0; i < a.length; i++)
+				{
+					if (a[i] == b[i])
+					{
+						result++;
+					}
+				}
+
+				return result;
+			}
+
+			function make_color()
+			{
+				while (true)
+				{
+					let c = [Math.random(), Math.random(), Math.random()];
+					let c_sum = c[0] + c[1] + c[2];
+
+					if (c_sum > 0.1 && c_sum < 2.9)
+					{
+						return c;
+					}
+				}
+			}
+
+			function on_cell_over(index) {
+				let tmp = document.getElementById("tmp");
+				let tgt = document.getElementById("tgt");
+
+				// now find colors with similar matches
+				let matches = [];
+
+				for (let i = 0; i < colors.length; ++i)
+				{
+					let inp_cell = document.getElementById('cell' + i);
+					console.assert(inp_cell != undefined);
+
+					if (i == index)
+					{
+						inp_cell.style.backgroundColor = color_to_hex(colors[i]);;
+						continue;
+					}
+
+					let match_count = find_match_count(hashes[index], hashes[i]);
+					if (match_count > MIN_MATCH_COUNT)
+					{
+						matches.push([match_count, i]);
+						inp_cell.style.backgroundColor = "white";
+					}
+					else
+					{
+						inp_cell.style.backgroundColor = color_to_hex(colors[i]);
+					}
+				}
+
+				matches.sort(function(a, b) { return a[0] < b[0]; });
+
+				tmp.innerHTML = '<p style="background-color:' + color_to_hex(colors[index]) + '">Color to find' + ' : ' + color_to_hex(colors[index]);
+
+				let tableHTML = '<tr>';
+
+				if (matches.length > 0)
+				{
+					let currentMatchCount = matches[0][0];
+					tableHTML += '<td>' + currentMatchCount + '</td>'
+
+					for (let i = 0; i < matches.length; ++i)
+					{
+						if (currentMatchCount != matches[i][0])
+						{
+							currentMatchCount = matches[i][0];
+							tableHTML += '</tr><tr><td>' + currentMatchCount + '</td>';
+						}
+						tableHTML += '<td style="background-color:' + color_to_hex(colors[matches[i][1]]) + '">' + color_to_hex(colors[matches[i][1]]) + '</td>';
+					}
+				}
+
+				tgt.innerHTML = tableHTML + '</tr>';
+			};
+
+			let table = document.getElementById("src");
+
+			let line = "";
+
+			for (let row = 0; row < 16; ++row)
+			{
+				line += '<tr>';
+
+				for (let col = 0; col < 64; ++col)
+				{
+					let color = make_color();
+
+					line += '<td id="cell' + colors.length + '" onmouseover="on_cell_over(' + colors.length + ')" style="background-color:' + color_to_hex(color) + '">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>';
+
+					colors.push(color);
+
+					let color_hashes = [];
+					for (let i = 0; i < planes.length; ++i)
+					{
+						color_hashes.push(make_hash(color, planes[i]));
+					}
+
+					hashes.push(color_hashes);
+				}
+
+				line += '</tr>';
+			}
+
+			table.innerHTML = line;
+		</script>
+	</body>
+</html>
